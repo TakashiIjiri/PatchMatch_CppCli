@@ -31,8 +31,11 @@ public:
 	{
 		m_imgIn .Allocate(fname);
 		m_imgOut = m_imgIn;
+
+		synthesizeLargerTexture_forwardOnly(3);
 	}
 
+	void synthesizeLargerTexture_forwardOnly(double sizeRate);
 
 };
 

@@ -6,6 +6,9 @@
 #include "stdio.h"
 #include "stdlib.h"
 #include "timage2D.h"
+#include <vector>
+#include <string>
+using namespace std;
 
 
 
@@ -59,11 +62,12 @@ public:
 };
 
 
+//initialize matching imgS --> imgT 
 inline void patchmatch_initNNF
 (
+	const int     &winR,
 	const Image2D &imgS,
 	const Image2D &imgT,
-	const int     &winR,
 	OfstPix *nnf //size is [imgS.W * imgS.H * 2], should be allocated
 )
 {
@@ -91,22 +95,23 @@ inline void patchmatch_initNNF
 static double diffOfPatches
 (
 	const int     &winR,
-	const Image2D &imgS, const int sX, const int sY,
-	const Image2D &imgT, const int tX, const int tY
+	const Image2D &imgS, const int &sX, const int &sY,
+	const Image2D &imgT, const int &tX, const int &tY
 )
 {
 	const int sW = imgS.getWidth ();
 	const int tW = imgT.getWidth ();
 
-
 	double diff = 0;
 
 	for( int y = 0; y < winR; ++y)
 	{
+		const int tmpSi = 4*( sX + sW*(sY + y) ); //高速化のため
+		const int tmpTi = 4*( tX + tW*(tY + y) ); //高速化のため
 		for( int x = 0; x < winR; ++x)
 		{
-			const int si = 4*( sX + x + sW*(sY + y) );
-			const int ti = 4*( tX + x + tW*(tY + y) );
+			const int si = tmpSi + 4*x; //const int si = 4*( sX + x + sW*(sY + y) );
+			const int ti = tmpTi + 4*x; //const int ti = 4*( tX + x + tW*(tY + y) );
 			double dx =  imgS[ si + 0] - imgT[ ti + 0];
 			double dy =  imgS[ si + 1] - imgT[ ti + 1];
 			double dz =  imgS[ si + 2] - imgT[ ti + 2];
@@ -118,11 +123,14 @@ static double diffOfPatches
 }
 
 
-//
+#define RAND_SEARCH_NUM 3
+
+
 //
 //前方向RasterizationによるNNFの更新
 //
-//
+//update matching imgS --> imgT 
+
 void patchmatch_updateForeRaster
 (
 	const int     &winR,
@@ -165,7 +173,7 @@ void patchmatch_updateForeRaster
 			}
 
 			//random search
-			for( int i=0; i<10; ++i)
+			for( int i=0; i<RAND_SEARCH_NUM; ++i)
 			{
 				int tX = (int)( rand() / (double) RAND_MAX * (tW - winR) );
 				int tY = (int)( rand() / (double) RAND_MAX * (tH - winR) );
@@ -187,7 +195,7 @@ void patchmatch_updateForeRaster
 //
 //逆方向RasterizationによるNNFの更新
 //
-//
+//update matching imgS --> imgT 
 void patchmatch_updateBackRaster
 (
 	const int     &winR,
@@ -230,7 +238,7 @@ void patchmatch_updateBackRaster
 			}
 
 			//random search
-			for( int i=0; i<10; ++i)
+			for( int i=0; i<RAND_SEARCH_NUM; ++i)
 			{
 				int tX = (int)( rand() / (double) RAND_MAX * (tW - winR) );
 				int tY = (int)( rand() / (double) RAND_MAX * (tH - winR) );
@@ -331,6 +339,114 @@ void patchmatch_updateImageByVoting
 
 
 
+
+
+void patchmatch_TexSynth_coherence
+(
+const int winR     ,
+const Image2D &imgS, //allocated 
+      Image2D &imgT //allocated (without pixel color info)
+)
+{
+	const int sW = imgS.getWidth ();
+	const int sH = imgS.getHeight();
+	const int tW = imgT.getWidth ();
+	const int tH = imgT.getHeight();
+
+
+
+	//OfstPix *nnf_StoT,
+	OfstPix *nnf_TtoS = new OfstPix[tW*tH];
+
+	patchmatch_initNNF( winR, imgT, imgS,  nnf_TtoS );
+	patchmatch_updateImageByVoting( winR, imgS, imgT, 0, nnf_TtoS);
+
+	for( int i=0; i < 5; ++i)
+	{
+		printf( "\nstart...");
+		patchmatch_updateForeRaster(winR, imgT, imgS, nnf_TtoS);
+		printf( " fore_done!");
+		patchmatch_updateBackRaster(winR, imgT, imgS, nnf_TtoS);
+		printf( " back_done!");
+		patchmatch_updateImageByVoting( winR, imgS, imgT, 0, nnf_TtoS);	
+		printf( " voting donw! %d\n", i);
+
+		imgT.SaveAs("a.png");
+	}
+
+	delete[] nnf_TtoS;
+}
+
+
+
+void patchmatch_TexSynth_multiLv_coherence
+(
+const int level,
+const int _winR ,
+const Image2D &_imgS, //allocated 
+      Image2D &_imgT //allocated (without pixel color info)
+)
+{
+	//prepare multi level imgS
+	Image2D tmpS = _imgS;
+	Image2D tmpT = _imgT;
+	int     tmpR = _winR;
+	vector<Image2D> imgS_multi(level);
+	vector<Image2D> imgT_multi(level);
+	vector<int>     winR_multi(level);
+	for( int i=0; i < level; ++i) 
+	{
+		imgS_multi[level - 1 - i] = tmpS;
+		imgT_multi[level - 1 - i] = tmpT;
+		winR_multi[level - 1 - i] = tmpR;
+		tmpS.HalfDownSample();
+		tmpT.HalfDownSample();
+		tmpR /= 2;
+	}
+
+
+
+	for( int lv = 0; lv < level; ++lv)
+	{
+
+		const int sW = imgS_multi[lv].getWidth ();
+		const int sH = imgS_multi[lv].getHeight();
+		const int tW = imgT_multi[lv].getWidth ();
+		const int tH = imgT_multi[lv].getHeight();
+
+		OfstPix *nnf_TtoS = new OfstPix[tW*tH];
+
+		//init by random
+		patchmatch_initNNF( winR_multi[lv], imgT_multi[lv], imgS_multi[lv],  nnf_TtoS );
+
+		if( lv == 0 )
+		{
+			patchmatch_updateImageByVoting( winR_multi[lv], imgS_multi[lv], imgT_multi[lv], 0, nnf_TtoS);
+		}
+		else 
+		{
+			imgT_multi[lv] = imgT_multi[lv-1];
+			imgT_multi[lv].doubleUpSample();
+		}
+
+		//update 
+		for( int i=0; i < 5; ++i)
+		{
+			patchmatch_updateForeRaster    (winR_multi[lv], imgT_multi[lv], imgS_multi[lv],    nnf_TtoS);
+			patchmatch_updateBackRaster    (winR_multi[lv], imgT_multi[lv], imgS_multi[lv],    nnf_TtoS);
+			patchmatch_updateImageByVoting( winR_multi[lv], imgS_multi[lv], imgT_multi[lv], 0, nnf_TtoS);	
+
+			string fname = "res" + std::to_string(lv) + string("_") + std::to_string(i) + string(".png");
+			imgT_multi[lv].SaveAs(fname.c_str());
+			printf( "%s\n", fname.c_str());
+		}
+
+
+		delete[] nnf_TtoS;
+	}
+
+	_imgT = imgT_multi.back();
+}
 
 
 
