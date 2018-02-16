@@ -87,6 +87,8 @@ inline void patchmatch_initNNF
 			nnf[x + y*sW] .set( targetX - x, targetY - y);
 		}
 	}
+
+
 }
 
 
@@ -145,6 +147,27 @@ void patchmatch_updateForeRaster
 	const int tW = imgT.getWidth ();
 	const int tH = imgT.getHeight();
 
+
+
+	
+	printf( "\n\n\ncheck!! before");
+	for( int sy = 0; sy <= sH - winR; ++sy)
+	for( int sx = 0; sx <= sW - winR; ++sx)
+	{
+		int tx = sx + nnf[sy*sW +sx].x;
+		int ty = sy + nnf[sy*sW +sx].y;
+
+		if( tx < 0) printf( "a");
+		if( ty < 0) printf( "b");
+		if( tx + winR - 1 >= tW) printf("c");
+		if( tx + winR - 1 >= tW) printf("d");
+	}
+
+
+
+
+
+
 	for( int y = 0; y <= sH - winR; ++y)
 	{
 		for( int x = 0; x <= sW - winR; ++x)
@@ -154,6 +177,8 @@ void patchmatch_updateForeRaster
 
 			if( x > 0) //check left
 			{
+				ただ入れるだけだと踏み越え可能性あり！！！！！！！！！！！
+
 				double tmpDiff = diffOfPatches( winR, imgS,x,y, imgT, x+nnf[idx-1].x, y+nnf[idx-1].y);
 				if( tmpDiff < diff)
 				{
@@ -186,6 +211,25 @@ void patchmatch_updateForeRaster
 			}
 		}
 	}
+
+
+	//check!!
+	printf( "\ncheck!! after\n\n\n");
+
+	for( int sy = 0; sy <= sH - winR; ++sy)
+	for( int sx = 0; sx <= sW - winR; ++sx)
+	{
+		int tx = sx + nnf[sy*sW +sx].x;
+		int ty = sy + nnf[sy*sW +sx].y;
+
+		if( tx < 0) printf( "a");
+		if( ty < 0) printf( "b");
+		if( tx + winR - 1 >= tW) printf("c");
+		if( tx + winR - 1 >= tW) printf("d");
+	}
+
+
+
 }
 
 
@@ -292,9 +336,6 @@ void patchmatch_updateImageByVoting
 		{
 			int sx = tx + nnf_TtoS[ty*tW +tx].x;
 			int sy = ty + nnf_TtoS[ty*tW +tx].y;
-
-			if( sx < 0 || sy < 0) printf( "(%d,%d)",sx,sy);
-			if( sx + winR - 1 >= sW || sy + winR - 1 >= tH) printf( "^");
 
 			//だめ、マイナスの値が出てる
 
