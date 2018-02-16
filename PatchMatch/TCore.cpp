@@ -17,7 +17,11 @@ void TCore::synthesizeLargerTexture_forwardOnly(double sizeRate)
 	const int newH = (int)(m_imgIn.getHeight() * sizeRate);
 	m_imgOut.Allocate( newW, newH );
 
-	patchmatch_TexSynth_multiLv_coherence( 3, 25, m_imgIn, m_imgOut);
+	//1. multi level synthesis only with coherence term 
+	//patchmatch_TexSynth_multiLv_coherence( 3, 17, m_imgIn, m_imgOut);
+	
+	//2. single level synthesis with coherence and completness term
+	patchmatch_TexSynth_coh_comp(17, m_imgIn, m_imgOut);
 
 }
 

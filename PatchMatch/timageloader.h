@@ -202,6 +202,7 @@ inline void t_saveImage(
 	const unsigned char* rgba)
 {
 
+	printf( "t_saveImage...%s", fname);
 	System::Drawing::Bitmap^ bmp  = gcnew System::Drawing::Bitmap(W,H, System::Drawing::Imaging::PixelFormat::Format32bppRgb);
 
 	System::Drawing::Imaging::BitmapData ^bmpData =
@@ -217,6 +218,7 @@ inline void t_saveImage(
 	int BitNum = bmp->GetPixelFormatSize(bmp->PixelFormat);
 	int Step = BitNum / 8;
 
+
 	for (int y = 0; y < H; y++)
 	{
 		for (int x = 0; x < W; x++)
@@ -228,13 +230,17 @@ inline void t_saveImage(
 		}
 	}
 
+
 	System::String ^fname_str = gcnew System::String(fname);
 	System::String ^ext = System::IO::Path::GetExtension(fname_str)->ToLower();
+	printf( "a");
 
 	if (     ext == ".bmp") bmp->Save( fname_str, System::Drawing::Imaging::ImageFormat::Bmp );
 	else if (ext == ".jpg") bmp->Save( fname_str, System::Drawing::Imaging::ImageFormat::Jpeg);
 	else if (ext == ".png") bmp->Save( fname_str, System::Drawing::Imaging::ImageFormat::Png );
 	else if (ext == ".tif") bmp->Save( fname_str, System::Drawing::Imaging::ImageFormat::Tiff);
+	printf( "b");
+	printf( "t_saveImage...done!\n");
 }
 
 

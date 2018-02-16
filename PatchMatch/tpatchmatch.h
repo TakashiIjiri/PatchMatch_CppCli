@@ -293,6 +293,11 @@ void patchmatch_updateImageByVoting
 			int sx = tx + nnf_TtoS[ty*tW +tx].x;
 			int sy = ty + nnf_TtoS[ty*tW +tx].y;
 
+			if( sx < 0 || sy < 0) printf( "(%d,%d)",sx,sy);
+			if( sx + winR - 1 >= sW || sy + winR - 1 >= tH) printf( "^");
+
+			//だめ、マイナスの値が出てる
+
 			for( int yy = 0; yy < winR; ++yy)
 			for( int xx = 0; xx < winR; ++xx)
 			{
@@ -312,8 +317,14 @@ void patchmatch_updateImageByVoting
 		for( int sy = 0; sy <= sH - winR; ++sy)
 		for( int sx = 0; sx <= sW - winR; ++sx)
 		{
+
 			int tx = sx + nnf_StoT[sy*sW +sx].x;
 			int ty = sy + nnf_StoT[sy*sW +sx].y;
+
+			if( tx < 0 || ty < 0) printf( "*");
+			if( tx + winR - 1 >= tW || ty + winR - 1 >= tH) printf( "@");
+
+
 
 			for( int yy = 0; yy < winR; ++yy)
 			for( int xx = 0; xx < winR; ++xx)
@@ -353,8 +364,6 @@ const Image2D &imgS, //allocated
 	const int tW = imgT.getWidth ();
 	const int tH = imgT.getHeight();
 
-
-
 	//OfstPix *nnf_StoT,
 	OfstPix *nnf_TtoS = new OfstPix[tW*tH];
 
@@ -363,19 +372,69 @@ const Image2D &imgS, //allocated
 
 	for( int i=0; i < 5; ++i)
 	{
-		printf( "\nstart...");
 		patchmatch_updateForeRaster(winR, imgT, imgS, nnf_TtoS);
-		printf( " fore_done!");
 		patchmatch_updateBackRaster(winR, imgT, imgS, nnf_TtoS);
-		printf( " back_done!");
 		patchmatch_updateImageByVoting( winR, imgS, imgT, 0, nnf_TtoS);	
-		printf( " voting donw! %d\n", i);
 
-		imgT.SaveAs("a.png");
+		string fname = "res" + std::to_string(i) + string(".png");
+		imgT.SaveAs(fname.c_str());
+		printf( "%s\n", fname.c_str());
+
 	}
 
 	delete[] nnf_TtoS;
 }
+
+
+
+
+void patchmatch_TexSynth_coh_comp
+(
+const int winR     ,
+const Image2D &imgS, //allocated 
+      Image2D &imgT //allocated (without pixel color info)
+)
+{
+	const int sW = imgS.getWidth ();
+	const int sH = imgS.getHeight();
+	const int tW = imgT.getWidth ();
+	const int tH = imgT.getHeight();
+
+	//OfstPix *nnf_StoT,
+	OfstPix *nnf_TtoS = new OfstPix[tW*tH];
+	OfstPix *nnf_StoT = new OfstPix[sW*sH];
+
+	patchmatch_initNNF( winR, imgT, imgS,  nnf_TtoS );
+	patchmatch_initNNF( winR, imgS, imgT,  nnf_StoT );
+	patchmatch_updateImageByVoting( winR, imgS, imgT, nnf_StoT, nnf_TtoS);
+	imgT.SaveAs("00.png");
+
+	for( int i=0; i < 5; ++i)
+	{
+		printf( "a");
+		patchmatch_updateForeRaster(winR, imgT, imgS, nnf_TtoS);
+		patchmatch_updateBackRaster(winR, imgT, imgS, nnf_TtoS);
+		printf( "b");
+		patchmatch_updateForeRaster(winR, imgS, imgT, nnf_StoT);
+		patchmatch_updateBackRaster(winR, imgS, imgT, nnf_StoT);
+		printf( "c");
+		patchmatch_updateImageByVoting( winR, imgS, imgT, nnf_StoT, nnf_TtoS);	
+		printf( "d");
+
+		string fname = "res" + std::to_string(i) + string(".png");
+		imgT.SaveAs(fname.c_str());
+		printf( "e");
+
+		printf( "%s\n", fname.c_str());
+	}
+
+	delete[] nnf_TtoS;
+	delete[] nnf_StoT;
+}
+
+
+
+
 
 
 
@@ -422,6 +481,8 @@ const Image2D &_imgS, //allocated
 		if( lv == 0 )
 		{
 			patchmatch_updateImageByVoting( winR_multi[lv], imgS_multi[lv], imgT_multi[lv], 0, nnf_TtoS);
+			imgT_multi[lv].SaveAs("00.png");
+
 		}
 		else 
 		{
