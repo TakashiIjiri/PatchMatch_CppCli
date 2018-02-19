@@ -8,6 +8,10 @@
 #include "timage2D.h"
 #include <vector>
 #include <string>
+#include <time.h>
+
+#include <omp.h>
+
 using namespace std;
 
 
@@ -31,65 +35,34 @@ using namespace std;
 //
 
 
-class OfstPix
+class NffPix
 {
 public:
-	int x,y;
-	OfstPix(int _x = 0, int _y = 0)
+	int x, y;
+	NffPix(int _x = 0, int _y = 0)
 	{
 		x = _x;
 		y = _y;
 	}
 
-	OfstPix(const OfstPix &src)
+	NffPix(const NffPix &src)
 	{
 		x = src.x;
 		y = src.y;
 	}
 
-	OfstPix &operator=(const OfstPix &src)
+	NffPix &operator=(const NffPix &src)
 	{
 		x = src.x;
 		y = src.y;
 		return *this;
 	}
 
-	void setZero(){ x= y=0;}
 	void set(int _x, int _y){ 
 		x = _x; 
 		y = _y;
 	}
 };
-
-
-//initialize matching imgS --> imgT 
-inline void patchmatch_initNNF
-(
-	const int     &winR,
-	const Image2D &imgS,
-	const Image2D &imgT,
-	OfstPix *nnf //size is [imgS.W * imgS.H * 2], should be allocated
-)
-{
-	const int sW = imgS.getWidth ();
-	const int sH = imgS.getHeight();
-	const int tW = imgT.getWidth ();
-	const int tH = imgT.getHeight();
-
-	for( int i = 0, s = sW*sH; i < s; ++i) nnf[i].setZero();
-
-	for( int y = 0; y <= sH - winR; ++y)
-	{
-		for( int x = 0; x <= sW - winR; ++x)
-		{
-			int targetX = (int)( rand() / (double) RAND_MAX * (tW - winR) );
-			int targetY = (int)( rand() / (double) RAND_MAX * (tH - winR) );
-			nnf[x + y*sW] .set( targetX - x, targetY - y);
-		}
-	}
-
-
-}
 
 
 
@@ -98,13 +71,19 @@ static double diffOfPatches
 (
 	const int     &winR,
 	const Image2D &imgS, const int &sX, const int &sY,
-	const Image2D &imgT, const int &tX, const int &tY
+	const Image2D &imgT, const int &tX, const int &tY,
+	const double maxDiff
 )
 {
 	const int sW = imgS.getWidth ();
 	const int tW = imgT.getWidth ();
+	const int tH = imgT.getHeight();
 
 	double diff = 0;
+
+	if(tX < 0          || tY < 0          ) return DBL_MAX;
+	if(tX + winR >= tW || tY + winR >= tH ) return DBL_MAX;
+
 
 	for( int y = 0; y < winR; ++y)
 	{
@@ -119,12 +98,48 @@ static double diffOfPatches
 			double dz =  imgS[ si + 2] - imgT[ ti + 2];
 			diff += dx*dx + dy*dy + dz*dz;
 		}	
+		if( diff > maxDiff ) return DBL_MAX;
 	}
 
 	return diff;
 }
 
 
+
+
+
+//initialize matching imgS --> imgT 
+inline void patchmatch_initNNF
+(
+	const int     &winR,
+	const Image2D &imgS,
+	const Image2D &imgT,
+	NffPix *nnf //size is [imgS.W * imgS.H * 2], should be allocated
+)
+{
+	const int sW = imgS.getWidth ();
+	const int sH = imgS.getHeight();
+	const int tW = imgT.getWidth ();
+	const int tH = imgT.getHeight();
+
+	for( int i = 0, s = sW*sH; i < s; ++i) nnf[i].set(0,0);
+
+	for( int y = 0; y <= sH - winR; ++y)
+	{
+		for( int x = 0; x <= sW - winR; ++x)
+		{
+			int targetX = (int)( rand() / (double) RAND_MAX * (tW - winR) );
+			int targetY = (int)( rand() / (double) RAND_MAX * (tH - winR) );
+			double diff = diffOfPatches(winR, imgS,x,y, imgT,targetX,targetY, DBL_MAX);
+			nnf[x + y*sW] .set( targetX - x, targetY - y);
+		}
+	}
+}
+
+
+
+
+#define SKIP_I   3
 #define RAND_SEARCH_NUM 3
 
 
@@ -139,7 +154,7 @@ void patchmatch_updateForeRaster
 	const Image2D &imgS,
 	const Image2D &imgT,
 
-	OfstPix *nnf //initialized (or already updated several times)
+	NffPix *nnf //initialized (or already updated several times)
 )
 {
 	const int sW = imgS.getWidth ();
@@ -147,54 +162,48 @@ void patchmatch_updateForeRaster
 	const int tW = imgT.getWidth ();
 	const int tH = imgT.getHeight();
 
+	/*
+The PatchMatch paper said that
+[To do so, we alternate between iterations of random
+search and propagation, where each stage addresses the entire offset
+field in parallel. Although propagation is inherently a serial operation,
+we adapt the jump flood scheme of Rong and Tan [2006]
+to perform propagation over several iterations.]
 
+This code simply compute the update in parallel
+	*/
 
-	
-	printf( "\n\n\ncheck!! before");
-	for( int sy = 0; sy <= sH - winR; ++sy)
-	for( int sx = 0; sx <= sW - winR; ++sx)
+#pragma omp parallel for schedule(static)
+	for( int y = 0; y <= sH - winR; y += SKIP_I)
 	{
-		int tx = sx + nnf[sy*sW +sx].x;
-		int ty = sy + nnf[sy*sW +sx].y;
-
-		if( tx < 0) printf( "a");
-		if( ty < 0) printf( "b");
-		if( tx + winR - 1 >= tW) printf("c");
-		if( tx + winR - 1 >= tW) printf("d");
-	}
-
-
-
-
-
-
-	for( int y = 0; y <= sH - winR; ++y)
-	{
-		for( int x = 0; x <= sW - winR; ++x)
+		//printf("%d(%d)",y, omp_get_thread_num() );
+		for( int x = 0; x <= sW - winR; x += SKIP_I)
 		{
 			const int idx = y * sW + x;
-			double diff = diffOfPatches( winR, imgS,x,y, imgT, x+nnf[idx].x, y+nnf[idx].y);
+			double diff = diffOfPatches( winR, imgS,x,y, imgT, x+nnf[idx].x, y+nnf[idx].y, DBL_MAX);
 
-			if( x > 0) //check left
+			if( x >= SKIP_I) //check left
 			{
-				ただ入れるだけだと踏み越え可能性あり！！！！！！！！！！！
-
-				double tmpDiff = diffOfPatches( winR, imgS,x,y, imgT, x+nnf[idx-1].x, y+nnf[idx-1].y);
-				if( tmpDiff < diff)
+				NffPix *n = &nnf[idx-SKIP_I];
+				double tmpDiff = diffOfPatches( winR, imgS,x,y, imgT, x+n->x, y+n->y, diff);
+				if( tmpDiff < diff) 
 				{
+					nnf[idx].set(n->x, n->y);
 					diff = tmpDiff;
-					nnf[idx] = nnf[idx-1];
 				}
 			}
 			
-			if( y > 0)//check up
+			if( y >= SKIP_I)//check up
 			{
-				double tmpDiff = diffOfPatches( winR, imgS,x,y, imgT, x+nnf[idx-sW].x, y+nnf[idx-sW].y);
-				if( tmpDiff < diff)
+				NffPix *n = &nnf[idx-sW*SKIP_I];
+
+				double tmpDiff = diffOfPatches( winR, imgS,x,y, imgT, x+n->x, y+n->y, diff);
+				if( tmpDiff < diff) 
 				{
+					nnf[idx].set(n->x, n->y);
 					diff = tmpDiff;
-					nnf[idx] = nnf[idx-sW];
 				}
+
 			}
 
 			//random search
@@ -202,34 +211,16 @@ void patchmatch_updateForeRaster
 			{
 				int tX = (int)( rand() / (double) RAND_MAX * (tW - winR) );
 				int tY = (int)( rand() / (double) RAND_MAX * (tH - winR) );
-				double tmpDiff = diffOfPatches( winR, imgS,x,y, imgT,tX,tY );
-				if( tmpDiff < diff)
-				{
-					diff = tmpDiff;
+				double tmpDiff = diffOfPatches( winR, imgS,x,y, imgT,tX,tY, diff );
+				if( tmpDiff < diff){
 					nnf[idx].set(tX - x, tY - y);
+					diff = tmpDiff;
 				}
 			}
 		}
 	}
 
-
-	//check!!
-	printf( "\ncheck!! after\n\n\n");
-
-	for( int sy = 0; sy <= sH - winR; ++sy)
-	for( int sx = 0; sx <= sW - winR; ++sx)
-	{
-		int tx = sx + nnf[sy*sW +sx].x;
-		int ty = sy + nnf[sy*sW +sx].y;
-
-		if( tx < 0) printf( "a");
-		if( ty < 0) printf( "b");
-		if( tx + winR - 1 >= tW) printf("c");
-		if( tx + winR - 1 >= tW) printf("d");
-	}
-
-
-
+	
 }
 
 
@@ -246,51 +237,61 @@ void patchmatch_updateBackRaster
 	const Image2D &imgS,
 	const Image2D &imgT,
 
-	OfstPix *nnf //initialized (or already updated several times)
+	NffPix *nnf //initialized (or already updated several times)
 )
 {
+	//W = 10, R = 3,        7,6,5,4,3,2,1,0
+	//W = 10, R = 3, S = 2,   6,  4,  2,  0,   N = (W-R) - (W-R) % S
+
+
+
 	const int sW = imgS.getWidth ();
 	const int sH = imgS.getHeight();
 	const int tW = imgT.getWidth ();
 	const int tH = imgT.getHeight();
 
-	for( int y = sH - winR; y >= 0; --y)
+	const int yStart = (sH - winR) - (sH - winR)%SKIP_I;
+	const int xStart = (sW - winR) - (sW - winR)%SKIP_I;
+
+#pragma omp parallel for schedule(static)
+	for( int y = yStart; y >= 0; y -= SKIP_I)
 	{
-		for( int x = sW - winR; x >= 0; --x)
+		for( int x = (sW - winR) - (sW - winR)%SKIP_I; x >= 0; x -= SKIP_I)
 		{
 			const int idx = y * sW + x;
-			double diff = diffOfPatches( winR, imgS,x,y, imgT, x+nnf[idx].x, y+nnf[idx].y);
+			double diff = diffOfPatches( winR, imgS,x,y, imgT, x+nnf[idx].x, y+nnf[idx].y, DBL_MAX);
 
-			if( x < sW - winR) //check right
+			if( x != xStart) //check right
 			{
-				double tmpDiff = diffOfPatches( winR, imgS,x,y, imgT, x+nnf[idx+1].x, y+nnf[idx+1].y);
+				NffPix *n = &nnf[idx+SKIP_I];
+				double tmpDiff = diffOfPatches( winR, imgS,x,y, imgT, x+n->x, y+n->y, diff);
 				if( tmpDiff < diff)
 				{
+					nnf[idx].set(n->x, n->y);
 					diff = tmpDiff;
-					nnf[idx] = nnf[idx+1];
 				}
 			}
 			
-			if( y < sH - winR )//check bottom
+			if( y != yStart )//check bottom
 			{
-				double tmpDiff = diffOfPatches( winR, imgS,x,y, imgT, x+nnf[idx+sW].x, y+nnf[idx+sW].y);
+				NffPix *n = &nnf[idx+SKIP_I*sW];
+				double tmpDiff = diffOfPatches( winR, imgS,x,y, imgT, x+n->x, y+n->y, diff);
 				if( tmpDiff < diff)
 				{
+					nnf[idx].set(n->x, n->y);
 					diff = tmpDiff;
-					nnf[idx] = nnf[idx+sW];
 				}
 			}
-
+		
 			//random search
 			for( int i=0; i<RAND_SEARCH_NUM; ++i)
 			{
 				int tX = (int)( rand() / (double) RAND_MAX * (tW - winR) );
 				int tY = (int)( rand() / (double) RAND_MAX * (tH - winR) );
-				double tmpDiff = diffOfPatches( winR, imgS,x,y, imgT,tX,tY );
-				if( tmpDiff < diff)
-				{
-					diff = tmpDiff;
+				double tmpDiff = diffOfPatches( winR, imgS,x,y, imgT,tX,tY, diff);
+				if( tmpDiff < diff){
 					nnf[idx].set(tX - x, tY - y);
+					diff = tmpDiff;
 				}
 			}
 		}
@@ -315,8 +316,8 @@ void patchmatch_updateImageByVoting
 
 	Image2D &imgT,
 
-	const OfstPix *nnf_StoT,
-	const OfstPix *nnf_TtoS
+	const NffPix *nnf_StoT,
+	const NffPix *nnf_TtoS
 )
 {
 	const int sW = imgS.getWidth ();
@@ -331,13 +332,11 @@ void patchmatch_updateImageByVoting
 
 	if( nnf_TtoS != 0)
 	{
-		for( int ty = 0; ty <= tH - winR; ++ty)
-		for( int tx = 0; tx <= tW - winR; ++tx)
+		for( int ty = 0; ty <= tH - winR; ty += SKIP_I)
+		for( int tx = 0; tx <= tW - winR; tx += SKIP_I)
 		{
 			int sx = tx + nnf_TtoS[ty*tW +tx].x;
 			int sy = ty + nnf_TtoS[ty*tW +tx].y;
-
-			//だめ、マイナスの値が出てる
 
 			for( int yy = 0; yy < winR; ++yy)
 			for( int xx = 0; xx < winR; ++xx)
@@ -355,17 +354,14 @@ void patchmatch_updateImageByVoting
 	
 	if( nnf_StoT != 0)
 	{
-		for( int sy = 0; sy <= sH - winR; ++sy)
-		for( int sx = 0; sx <= sW - winR; ++sx)
+		for( int sy = 0; sy <= sH - winR; sy += SKIP_I)
+		for( int sx = 0; sx <= sW - winR; sx += SKIP_I)
 		{
-
 			int tx = sx + nnf_StoT[sy*sW +sx].x;
 			int ty = sy + nnf_StoT[sy*sW +sx].y;
 
 			if( tx < 0 || ty < 0) printf( "*");
 			if( tx + winR - 1 >= tW || ty + winR - 1 >= tH) printf( "@");
-
-
 
 			for( int yy = 0; yy < winR; ++yy)
 			for( int xx = 0; xx < winR; ++xx)
@@ -383,9 +379,16 @@ void patchmatch_updateImageByVoting
 
 	for( int i=0, s=tW*tH; i<s; ++i)
 	{
-		imgT[4*i+0] = (byte)(rgba[4*i + 0] / rgba[4*i + 3]);
-		imgT[4*i+1] = (byte)(rgba[4*i + 1] / rgba[4*i + 3]);
-		imgT[4*i+2] = (byte)(rgba[4*i + 2] / rgba[4*i + 3]);
+		if( rgba[4*i + 3] != 0)
+		{
+			imgT[4*i+0] = (byte)(rgba[4*i + 0] / rgba[4*i + 3]);
+			imgT[4*i+1] = (byte)(rgba[4*i + 1] / rgba[4*i + 3]);
+			imgT[4*i+2] = (byte)(rgba[4*i + 2] / rgba[4*i + 3]);		
+		}
+		else
+		{
+			//no vote exist (ignore)		
+		}
 	}
 }
 
@@ -406,7 +409,7 @@ const Image2D &imgS, //allocated
 	const int tH = imgT.getHeight();
 
 	//OfstPix *nnf_StoT,
-	OfstPix *nnf_TtoS = new OfstPix[tW*tH];
+	NffPix *nnf_TtoS = new NffPix[tW*tH];
 
 	patchmatch_initNNF( winR, imgT, imgS,  nnf_TtoS );
 	patchmatch_updateImageByVoting( winR, imgS, imgT, 0, nnf_TtoS);
@@ -442,8 +445,8 @@ const Image2D &imgS, //allocated
 	const int tH = imgT.getHeight();
 
 	//OfstPix *nnf_StoT,
-	OfstPix *nnf_TtoS = new OfstPix[tW*tH];
-	OfstPix *nnf_StoT = new OfstPix[sW*sH];
+	NffPix *nnf_TtoS = new NffPix[tW*tH];
+	NffPix *nnf_StoT = new NffPix[sW*sH];
 
 	patchmatch_initNNF( winR, imgT, imgS,  nnf_TtoS );
 	patchmatch_initNNF( winR, imgS, imgT,  nnf_StoT );
@@ -452,15 +455,15 @@ const Image2D &imgS, //allocated
 
 	for( int i=0; i < 5; ++i)
 	{
-		printf( "a");
+		printf( "update T-->S");
 		patchmatch_updateForeRaster(winR, imgT, imgS, nnf_TtoS);
 		patchmatch_updateBackRaster(winR, imgT, imgS, nnf_TtoS);
-		printf( "b");
+		printf( "update S-->T");
 		patchmatch_updateForeRaster(winR, imgS, imgT, nnf_StoT);
 		patchmatch_updateBackRaster(winR, imgS, imgT, nnf_StoT);
-		printf( "c");
+		printf( "Voting");
 		patchmatch_updateImageByVoting( winR, imgS, imgT, nnf_StoT, nnf_TtoS);	
-		printf( "d");
+		printf( "done\n");
 
 		string fname = "res" + std::to_string(i) + string(".png");
 		imgT.SaveAs(fname.c_str());
@@ -508,13 +511,13 @@ const Image2D &_imgS, //allocated
 
 	for( int lv = 0; lv < level; ++lv)
 	{
-
+		clock_t t0 = clock();
 		const int sW = imgS_multi[lv].getWidth ();
 		const int sH = imgS_multi[lv].getHeight();
 		const int tW = imgT_multi[lv].getWidth ();
 		const int tH = imgT_multi[lv].getHeight();
 
-		OfstPix *nnf_TtoS = new OfstPix[tW*tH];
+		NffPix *nnf_TtoS = new NffPix[tW*tH];
 
 		//init by random
 		patchmatch_initNNF( winR_multi[lv], imgT_multi[lv], imgS_multi[lv],  nnf_TtoS );
@@ -532,7 +535,7 @@ const Image2D &_imgS, //allocated
 		}
 
 		//update 
-		for( int i=0; i < 5; ++i)
+		for( int i=0; i < 10; ++i)
 		{
 			patchmatch_updateForeRaster    (winR_multi[lv], imgT_multi[lv], imgS_multi[lv],    nnf_TtoS);
 			patchmatch_updateBackRaster    (winR_multi[lv], imgT_multi[lv], imgS_multi[lv],    nnf_TtoS);
@@ -543,6 +546,8 @@ const Image2D &_imgS, //allocated
 			printf( "%s\n", fname.c_str());
 		}
 
+		clock_t t1 = clock();
+		printf( "%f\n", (t1-t0)/(double)CLOCKS_PER_SEC);
 
 		delete[] nnf_TtoS;
 	}
